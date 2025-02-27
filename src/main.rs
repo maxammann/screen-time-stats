@@ -18,13 +18,13 @@ const KNOWLEDGE_DB: &str = "/Users/max/Library/Application Support/Knowledge/kno
 #[derive(Debug)]
 struct UsageData {
     app: String,
-    device_id: String,
-    device_model: String,
+    //device_id: String,
+    //device_model: String,
     usage: i64,
     start_time: DateTime<Utc>,
     end_time: DateTime<Utc>,
-    created_at: DateTime<Utc>,
-    tz: f64,
+    //created_at: DateTime<Utc>,
+    //tz: f64,
 }
 fn query_database() -> anyhow::Result<Vec<UsageData>> {
     let db_path = KNOWLEDGE_DB;
@@ -72,22 +72,17 @@ fn query_database() -> anyhow::Result<Vec<UsageData>> {
     let rows = stmt.query_map([], |row| {
         let start_time = DateTime::from_timestamp(row.get(2)?, 0).unwrap_or_default();
         let end_time = DateTime::from_timestamp(row.get(3)?, 0).unwrap_or_default();
-        let created_at =
-            DateTime::from_timestamp(row.get::<_, f64>(4)? as i64, 0).unwrap_or_default();
-        let tz = row.get(5)?;
+        //let created_at = DateTime::from_timestamp(row.get::<_, f64>(4)? as i64, 0).unwrap_or_default();
+        // let tz = row.get(5)?;
         Ok(UsageData {
             app: row.get(0)?,
             usage: row.get(1)?,
             start_time,
             end_time,
-            created_at,
-            tz,
-            device_id: row
-                .get::<_, Option<String>>(6)?
-                .unwrap_or_else(|| "Unknown".to_string()),
-            device_model: row
-                .get::<_, Option<String>>(7)?
-                .unwrap_or_else(|| "Unknown".to_string()),
+            //created_at,
+            //tz,
+            //device_id: row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "Unknown".to_string()),
+            //device_model: row.get::<_, Option<String>>(7)?.unwrap_or_else(|| "Unknown".to_string()),
         })
     })?;
 
@@ -309,7 +304,7 @@ fn run_tui(
                 .direction(Direction::Vertical)
                 .margin(1)
                 .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
-                .split(frame.size());
+                .split(frame.area());
 
             let titles = vec!["Daily Analysis", "Weekly Analysis"];
             let tabs = Tabs::new(titles)
