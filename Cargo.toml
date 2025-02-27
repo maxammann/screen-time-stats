@@ -1,0 +1,11 @@
+[package]
+name = "screen-time-stats"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rusqlite = "0.33"
+chrono = "0.4"
+ratatui = "0.29"
+crossterm = "0.28.1"
+anyhow = "1"
