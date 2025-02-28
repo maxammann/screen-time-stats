@@ -90,6 +90,20 @@ fn query_database() -> anyhow::Result<Vec<UsageData>> {
     Ok(results)
 }
 
+fn format_duration(duration: &Duration) -> String {
+    let seconds = duration.num_seconds();
+    let minutes = seconds / 60;
+    let hours = minutes / 60;
+
+    if hours > 0 {
+        format!("{}h {}min", hours, minutes % 60)
+    } else if minutes > 0 {
+        format!("{}min {}s", minutes, seconds % 60)
+    } else {
+        format!("{}s", seconds)
+    }
+}
+
 #[derive(Debug, Default)]
 struct DailyUsage {
     total_usage: i64,
@@ -97,32 +111,41 @@ struct DailyUsage {
     last_usage: DateTime<Local>,
     per_app_usage: HashMap<String, i64>,
     breaks: Vec<(DateTime<Local>, DateTime<Local>, Duration)>, // Global break intervals per day with duration
-    net_active_hours: Duration,
+    net_active_time: Duration,
 }
 
 impl Display for DailyUsage {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Date: {}", self.first_usage.date_naive())?;
-        writeln!(f, "  Total Usage: {:.2} hours", self.total_usage as f64 / 3600.0)?;
+        writeln!(
+            f,
+            "  Total Usage: {}",
+            format_duration(&Duration::seconds(self.total_usage))
+        )?;
         writeln!(f, "  First Usage: {}", self.first_usage)?;
         writeln!(f, "  Last Usage: {}", self.last_usage)?;
         writeln!(
             f,
-            "  Net Active Hours: {:.2} hours",
-            self.net_active_hours.num_seconds() as f64 / 3600.0
+            "  Net Active Hours: {}",
+            format_duration(&self.net_active_time)
         )?;
         writeln!(f, "  Per App Usage:")?;
         for (app, usage_time) in &self.per_app_usage {
-            writeln!(f, "    {}: {} seconds", app, usage_time)?;
+            writeln!(
+                f,
+                "    {}: {}",
+                app,
+                format_duration(&Duration::seconds(*usage_time))
+            )?;
         }
         writeln!(f, "  Breaks:")?;
         for (start, end, duration) in &self.breaks {
             writeln!(
                 f,
-                "    Break from {} to {} ({} minutes)",
+                "    Break from {} to {} ({})",
                 start,
                 end,
-                duration.num_minutes()
+                format_duration(&duration)
             )?;
         }
         Ok(())
@@ -152,15 +175,24 @@ impl Display for WeeklyUsage {
             self.first_day,
             current_marker
         )?;
-        writeln!(f, "  Total Usage: {} seconds", self.total_usage)?;
         writeln!(
             f,
-            "  Net Active Hours: {:.2} hours",
-            self.net_active_hours.num_seconds() as f64 / 3600.0
+            "  Total Usage: {}",
+            format_duration(&Duration::seconds(self.total_usage))
+        )?;
+        writeln!(
+            f,
+            "  Net Active Time: {}",
+            format_duration(&self.net_active_hours)
         )?;
         writeln!(f, "  Per App Usage:")?;
         for (app, usage_time) in &self.per_app_usage {
-            writeln!(f, "    {}: {} seconds", app, usage_time)?;
+            writeln!(
+                f,
+                "    {}: {}",
+                app,
+                format_duration(&Duration::seconds(*usage_time))
+            )?;
         }
 
         Ok(())
@@ -222,7 +254,7 @@ fn analyze_usage(data: Vec<UsageData>) -> Vec<(NaiveDate, DailyUsage)> {
         }
 
         usage.breaks = breaks;
-        usage.net_active_hours =
+        usage.net_active_time =
             usage.last_usage.signed_duration_since(usage.first_usage) - total_break_duration;
     }
 
@@ -246,7 +278,7 @@ fn analyze_weekly_usage(daily_usage: &Vec<(NaiveDate, DailyUsage)>) -> Vec<(u32,
         });
 
         weekly_entry.total_usage += usage.total_usage;
-        weekly_entry.net_active_hours += usage.net_active_hours;
+        weekly_entry.net_active_hours += usage.net_active_time;
 
         for (app, time) in &usage.per_app_usage {
             *weekly_entry.per_app_usage.entry(app.clone()).or_insert(0) += time;
@@ -254,30 +286,28 @@ fn analyze_weekly_usage(daily_usage: &Vec<(NaiveDate, DailyUsage)>) -> Vec<(u32,
     }
 
     let mut sorted_analysis: Vec<_> = weekly_usage.into_iter().collect();
-    sorted_analysis.sort_by_key(|(week, _)|  Reverse(*week));
+    sorted_analysis.sort_by_key(|(week, _)| Reverse(*week));
     sorted_analysis
 }
 
-
-fn generate_entries_and_details<U: Display, V: Display>(
+fn generate_entries_and_details<U: Display, V: Display, F>(
     analysis: &Vec<(U, V)>,
     selected_index: usize,
-    is_daily: bool,
-) -> (Vec<ListItem>, String) {
+    list_item_name: F,
+) -> (Vec<ListItem>, String)
+where
+    F: Fn(&U, &V) -> String,
+{
     let entries: Vec<_> = analysis
         .iter()
         .enumerate()
-        .map(|(i, (key, _))| {
+        .map(|(i, (key, value))| {
             let style = if i == selected_index {
                 Style::default().fg(Color::Green)
             } else {
                 Style::default()
             };
-            ListItem::new(if is_daily {
-                key.to_string()
-            } else {
-                format!("Week {} (Starting {})", key, key)
-            }).style(style)
+            ListItem::new(list_item_name(key, value)).style(style)
         })
         .collect();
 
@@ -314,8 +344,14 @@ fn run_tui(
             frame.render_widget(tabs, chunks[0]);
 
             let (items, details) = match selected_tab {
-                0 => generate_entries_and_details(&daily_analysis, selected_index, true),
-                _ => generate_entries_and_details(&weekly_analysis, selected_index, false),
+                0 => generate_entries_and_details(&daily_analysis, selected_index, |key, value| {
+                    key.to_string()
+                }),
+                _ => {
+                    generate_entries_and_details(&weekly_analysis, selected_index, |key, value| {
+                        format!("Week {} (Starting {})", key, value.first_day)
+                    })
+                }
             };
 
             let layout = Layout::default()
